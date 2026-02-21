@@ -21,6 +21,7 @@ python train_student_meta.py \
   --assume_s_step_size 0.05 \
   --dataset "cifar100" \
   --model_s "resnet8" \
+  --model_t "resnet32x4" \
   --path_t "./save/teacher_model/teacher_best.pth" \
   --kd_T 4 \
   --trial "1" \
