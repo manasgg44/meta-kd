@@ -277,6 +277,14 @@ def main():
     save_file = os.path.join(opt.save_folder, '{}_last.pth'.format(opt.model_s))
     torch.save(state, save_file)
 
+    # save teacher model
+    teacher_state = {
+        'opt': opt,
+        'model': model_t.state_dict(),
+    }
+    teacher_save_file = os.path.join(opt.save_folder, '{}_teacher_last.pth'.format(opt.model_t))
+    torch.save(teacher_state, teacher_save_file)
+
 
 if __name__ == '__main__':
     main()
