@@ -69,8 +69,11 @@ def parse_option():
     parser.add_argument('--model_s', type=str, default='resnet8',
                         choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
                                  'resnet8x4', 'resnet32x4', 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19'])
-    # TODO: Add more support
-    # 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2', 'ResNet50', 'MobileNetV2', 'ShuffleV1', 'ShuffleV2'])
+    parser.add_argument('--model_t', type=str, required=True, 
+                        choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
+                                 'resnet8x4', 'resnet32x4', 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
+                                 'wrn_16_1', 'wrn_16_2', 'wrn_40_1', 'wrn_40_2', 'ResNet50', 'MobileNetV2', 'ShuffleV1', 'ShuffleV2'],
+                        help='teacher model architecture')
     parser.add_argument('--path_t', type=str, default=None, help='teacher model snapshot')
 
     # distillation
@@ -98,8 +101,6 @@ def parse_option():
     for it in iterations:
         opt.lr_decay_epochs.append(int(it))
 
-    opt.model_t = get_teacher_name(opt.path_t)
-
     opt.model_name = 'S:{}_T:{}_{}_{}_a:{}_{}'.format(opt.model_s, opt.model_t, opt.dataset, 'mlkd',
                                                                 opt.alpha, opt.trial)
 
@@ -114,18 +115,8 @@ def parse_option():
     return opt
 
 
-def get_teacher_name(model_path):
-    """parse teacher name"""
-    segments = model_path.split('/')[-2].split('_')
-    if segments[0] != 'wrn':
-        return segments[0]
-    else:
-        return segments[0] + '_' + segments[1] + '_' + segments[2]
-
-
-def load_teacher(model_path, n_cls):
+def load_teacher(model_path, model_t, n_cls):
     print('==> loading teacher model')
-    model_t = get_teacher_name(model_path)
     model = model_dict[model_t](num_classes=n_cls)
     if torch.cuda.is_available():
         model.load_state_dict(torch.load(model_path)['model'])
@@ -152,7 +143,7 @@ def main():
         raise NotImplementedError(opt.dataset)
 
     # model
-    model_t = load_teacher(opt.path_t, n_cls)
+    model_t = load_teacher(opt.path_t, opt.model_t, n_cls)
     model_s = model_dict[opt.model_s](num_classes=n_cls)
 
     data = torch.randn(2, 3, 32, 32)
