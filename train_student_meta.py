@@ -9,7 +9,6 @@ import argparse
 import socket
 import time
 
-import tensorboard_logger as tb_logger
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -141,9 +140,6 @@ def main():
 
     opt = parse_option()
 
-    # tensorboard logger
-    logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
-
     # dataloader
     if opt.dataset == 'cifar100':
         train_loader, held_loader, val_loader = get_cifar100_dataloaders(batch_size=opt.batch_size,
@@ -233,14 +229,7 @@ def main():
         time2 = time.time()
         print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 
-        logger.log_value('train_acc', train_acc, epoch)
-        logger.log_value('train_loss', train_loss, epoch)
-
         test_acc, test_acc_top5, test_loss = validate(val_loader, model_s, criterion_cls, opt)
-
-        logger.log_value('test_acc', test_acc, epoch)
-        logger.log_value('test_loss', test_loss, epoch)
-        logger.log_value('test_acc_top5', test_acc_top5, epoch)
 
         # save the best model
         if test_acc > best_acc:
