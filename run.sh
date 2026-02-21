@@ -22,7 +22,7 @@ python train_student_meta.py \
   --dataset "cifar100" \
   --model_s "resnet8" \
   --model_t "resnet32x4" \
-  --path_t "./save/teacher_model/teacher_best.pth" \
+  --path_t "save/models/resnet32x4_vanilla/ckpt_epoch_240.pth" \
   --kd_T 4 \
   --trial "1" \
   --alpha 0.5
