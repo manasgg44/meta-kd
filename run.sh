@@ -20,9 +20,9 @@ python train_student_meta.py \
   --num_meta_batches 1 \
   --assume_s_step_size 0.05 \
   --dataset "cifar100" \
-  --model_s "resnet8" \
-  --model_t "resnet32x4" \
-  --path_t "save/models/resnet32x4_vanilla/ckpt_epoch_240.pth" \
+  --model_s "resnet32" \
+  --model_t "resnet110" \
+  --path_t "save/models/resnet110_vanilla/ckpt_epoch_240.pth" \
   --kd_T 4 \
   --trial "1" \
   --alpha 0.5
