@@ -82,12 +82,9 @@ def main():
             )
         else:
             raise FileNotFoundError(
-                f'Checkpoint not found: {teacher_ckpt}.'
-                f' Searched save_folder {save_folder} and roots {search_roots}.
-                Pass --checkpoint to point to the file directly.'
+                f"Checkpoint not found: {teacher_ckpt}. Searched save_folder {save_folder} and roots {search_roots}. "
+                "Pass --checkpoint to point to the file directly."
             )
-        else:
-            raise FileNotFoundError(f'Checkpoint not found: {teacher_ckpt}')
 
     map_loc = None if torch.cuda.is_available() else torch.device('cpu')
     checkpoint = torch.load(teacher_ckpt, map_location=map_loc)
