@@ -93,12 +93,16 @@ class CIFAR100WithHeld(VisionDataset):
         self.data = np.vstack(self.data).reshape(-1, 3, 32, 32)
         self.data = self.data.transpose((0, 2, 3, 1))  # convert to HWC
 
+        # handle held_samples == 0 correctly (avoid arr[:-0] which equals arr[:0])
+        hs = int(self.held_samples)
         if self.held:
-            self.data = self.data[-self.held_samples:]
-            self.targets = self.targets[-self.held_samples:]
+            if hs > 0:
+                self.data = self.data[-hs:]
+                self.targets = self.targets[-hs:]
         elif self.train:
-            self.data = self.data[:-self.held_samples]
-            self.targets = self.targets[:-self.held_samples]
+            if hs > 0:
+                self.data = self.data[:-hs]
+                self.targets = self.targets[:-hs]
 
         self._load_meta()
 
