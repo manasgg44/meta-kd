@@ -32,8 +32,30 @@ def main():
     if not os.path.isfile(teacher_ckpt):
         if args.checkpoint:
             raise FileNotFoundError(f'Checkpoint not found: {teacher_ckpt}')
+        # If user provided a save_folder but it doesn't exist, try searching likely locations.
+        # 1) If save_folder is a directory, look for .pth inside it.
         if os.path.isdir(save_folder):
             candidates = [os.path.join(save_folder, f) for f in os.listdir(save_folder) if f.endswith('.pth')]
+        else:
+            candidates = []
+
+        # 2) If none found and the default save root exists, search subfolders for the teacher name
+        if not candidates:
+            default_root = os.path.join('.', 'save', 'student_model')
+            if os.path.isdir(default_root):
+                for sub in os.listdir(default_root):
+                    subpath = os.path.join(default_root, sub)
+                    if os.path.isdir(subpath) and (f'T:{teacher_model_name}' in sub or teacher_model_name in sub):
+                        for f in os.listdir(subpath):
+                            if f.endswith('.pth'):
+                                candidates.append(os.path.join(subpath, f))
+
+        # 3) final fallback: walk the repo and find files that match the teacher filename
+        if not candidates:
+            for root, _, files in os.walk('.'):
+                for f in files:
+                    if f == f'{teacher_model_name}_teacher_last.pth' or f.endswith(f'_{teacher_model_name}_teacher_last.pth'):
+                        candidates.append(os.path.join(root, f))
             if len(candidates) == 1:
                 teacher_ckpt = candidates[0]
                 print(f'Using found checkpoint: {teacher_ckpt}')
