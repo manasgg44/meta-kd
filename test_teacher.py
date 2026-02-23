@@ -71,15 +71,23 @@ def main():
                 if candidates:
                     break
 
+        # remove duplicates and prefer exact teacher_last filename when possible
+        candidates = sorted(set(candidates))
         if len(candidates) == 1:
             teacher_ckpt = candidates[0]
             print(f'Using found checkpoint: {teacher_ckpt}')
         elif len(candidates) > 1:
-            raise FileNotFoundError(
-                f'Checkpoint not found at {os.path.join(save_folder, f"{teacher_model_name}_teacher_last.pth")}.'
-                f' Multiple .pth files found:\n' + '\n'.join(candidates)
-                + '\nPass --checkpoint to specify which to use.'
-            )
+            preferred_name = f'{teacher_model_name}_teacher_last.pth'
+            preferred = [c for c in candidates if os.path.basename(c) == preferred_name]
+            if len(preferred) == 1:
+                teacher_ckpt = preferred[0]
+                print(f'Using preferred checkpoint: {teacher_ckpt}')
+            else:
+                raise FileNotFoundError(
+                    f'Checkpoint not found at {os.path.join(save_folder, f"{teacher_model_name}_teacher_last.pth")}.'
+                    f' Multiple .pth files found:\n' + '\n'.join(candidates)
+                    + '\nPass --checkpoint to specify which to use.'
+                )
         else:
             raise FileNotFoundError(
                 f"Checkpoint not found: {teacher_ckpt}. Searched save_folder {save_folder} and roots {search_roots}. "
