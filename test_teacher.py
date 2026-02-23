@@ -51,22 +51,41 @@ def main():
                                 candidates.append(os.path.join(subpath, f))
 
         # 3) final fallback: walk the repo and find files that match the teacher filename
+        for root, _, files in os.walk('.'):
+            for f in files:
+                if f == f'{teacher_model_name}_teacher_last.pth' or f.endswith(f'_{teacher_model_name}_teacher_last.pth'):
+                    candidates.append(os.path.join(root, f))
+
+        # If nothing found inside repo, try a few likely roots (e.g. /data1, home)
         if not candidates:
-            for root, _, files in os.walk('.'):
-                for f in files:
-                    if f == f'{teacher_model_name}_teacher_last.pth' or f.endswith(f'_{teacher_model_name}_teacher_last.pth'):
-                        candidates.append(os.path.join(root, f))
-            if len(candidates) == 1:
-                teacher_ckpt = candidates[0]
-                print(f'Using found checkpoint: {teacher_ckpt}')
-            elif len(candidates) > 1:
-                raise FileNotFoundError(
-                    f'Checkpoint not found at {os.path.join(save_folder, f"{teacher_model_name}_teacher_last.pth")}.'
-                    f' Multiple .pth files exist in {save_folder}:\n' + '\n'.join(candidates)
-                    + '\nPass --checkpoint to specify which to use.'
-                )
-            else:
-                raise FileNotFoundError(f'Checkpoint not found: {teacher_ckpt}')
+            search_roots = ['.', '/data1', os.path.expanduser('~'), '/mnt', '/home']
+            for r in search_roots:
+                if not os.path.isdir(r):
+                    continue
+                for root, _, files in os.walk(r):
+                    for f in files:
+                        if f == f'{teacher_model_name}_teacher_last.pth' or f.endswith(f'_{teacher_model_name}_teacher_last.pth'):
+                            candidates.append(os.path.join(root, f))
+                    if candidates:
+                        break
+                if candidates:
+                    break
+
+        if len(candidates) == 1:
+            teacher_ckpt = candidates[0]
+            print(f'Using found checkpoint: {teacher_ckpt}')
+        elif len(candidates) > 1:
+            raise FileNotFoundError(
+                f'Checkpoint not found at {os.path.join(save_folder, f"{teacher_model_name}_teacher_last.pth")}.'
+                f' Multiple .pth files found:\n' + '\n'.join(candidates)
+                + '\nPass --checkpoint to specify which to use.'
+            )
+        else:
+            raise FileNotFoundError(
+                f'Checkpoint not found: {teacher_ckpt}.'
+                f' Searched save_folder {save_folder} and roots {search_roots}.
+                Pass --checkpoint to point to the file directly.'
+            )
         else:
             raise FileNotFoundError(f'Checkpoint not found: {teacher_ckpt}')
 
