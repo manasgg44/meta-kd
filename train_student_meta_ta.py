@@ -5,7 +5,6 @@ import argparse
 import socket
 import time
 
-import tensorboard_logger as tb_logger
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -23,48 +22,60 @@ from helper.meta_loops_ta import train_distill as train, validate
 
 def parse_option():
     hostname = socket.gethostname()
-    parser = argparse.ArgumentParser('meta distill with TA')
+    parser = argparse.ArgumentParser('meta distill with TA (no tensorboard logger)')
 
-    parser.add_argument('--print_freq', type=int, default=100)
-    parser.add_argument('--tb_freq', type=int, default=500)
-    parser.add_argument('--save_freq', type=int, default=40)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--num_workers', type=int, default=8)
-    parser.add_argument('--epochs', type=int, default=240)
+    parser.add_argument('--print_freq', type=int, default=100, help='print frequency')
+    parser.add_argument('--save_freq', type=int, default=40, help='save frequency')
+    parser.add_argument('--batch_size', type=int, default=64, help='batch_size')
+    parser.add_argument('--num_workers', type=int, default=8, help='num of workers to use')
+    parser.add_argument('--epochs', type=int, default=240, help='number of training epochs')
 
-    parser.add_argument('--lr', type=float, default=0.05)
-    parser.add_argument('--teacher_lr', type=float, default=0.05)
-    parser.add_argument('--ta_lr', type=float, default=None)
-    parser.add_argument('--lr_decay_epochs', type=str, default='150,180,210')
-    parser.add_argument('--lr_decay_rate', type=float, default=0.1)
-    parser.add_argument('--weight_decay', type=float, default=5e-4)
-    parser.add_argument('--momentum', type=float, default=0.9)
-    parser.add_argument('--loss_type', type=str, choices=['mse', 'kl'], required=True)
+    # optimization
+    parser.add_argument('--lr', type=float, default=0.05, help='student learning rate')
+    parser.add_argument('--teacher_lr', type=float, default=0.05, help='teacher learning rate')
+    parser.add_argument('--ta_lr', type=float, default=None, help='ta learning rate (defaults to teacher_lr)')
+    parser.add_argument('--lr_decay_epochs', type=str, default='150,180,210', help='where to decay lr, can be a list')
+    parser.add_argument('--lr_decay_rate', type=float, default=0.1, help='decay rate for learning rate')
+    parser.add_argument('--weight_decay', type=float, default=5e-4, help='weight decay')
+    parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+    parser.add_argument('--loss_type', type=str, choices=['mse', 'kl'], required=True, help='kd loss type')
 
-    parser.add_argument('--held_size', type=int, required=True)
-    parser.add_argument('--num_held_samples', type=int, required=True)
-    parser.add_argument('--num_meta_batches', type=int, default=1)
-    parser.add_argument('--assume_s_step_size', type=float, default=0.05)
+    # held set
+    parser.add_argument('--held_size', type=int, required=True, help='the size of held set')
+    parser.add_argument('--num_held_samples', type=int, required=True, help='num of held samples used for one meta update')
+    parser.add_argument('--num_meta_batches', type=int, default=1, help='num of train batches per meta round')
+    parser.add_argument('--assume_s_step_size', type=float, default=0.05, help='assume student grad update lr')
 
-    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'])
+    # dataset
+    parser.add_argument('--dataset', type=str, default='cifar100', choices=['cifar100'], help='dataset')
 
-    parser.add_argument('--model_s', type=str, required=True,
-                        choices=['resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
-                                 'resnet8x4', 'resnet32x4', 'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19'])
-    parser.add_argument('--model_t', type=str, required=True)
-    parser.add_argument('--model_ta', type=str, default=None)
+    # models
+    parser.add_argument(
+        '--model_s',
+        type=str,
+        required=True,
+        choices=[
+            'resnet8', 'resnet14', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110',
+            'resnet8x4', 'resnet32x4',
+            'vgg8', 'vgg11', 'vgg13', 'vgg16', 'vgg19'
+        ],
+        help='student model architecture'
+    )
+    parser.add_argument('--model_t', type=str, required=True, help='teacher model architecture')
+    parser.add_argument('--model_ta', type=str, default=None, help='ta model architecture (defaults to model_t)')
 
-    parser.add_argument('--path_t', type=str, required=True)
-    parser.add_argument('--path_ta', type=str, default=None)
+    parser.add_argument('--path_t', type=str, required=True, help='teacher checkpoint path')
+    parser.add_argument('--path_ta', type=str, default=None, help='ta checkpoint path (defaults to path_t)')
 
-    parser.add_argument('--kd_T', type=float, default=4.0)
-    parser.add_argument('--trial', type=str, default='1')
+    # distillation
+    parser.add_argument('--kd_T', type=float, default=4.0, help='temperature for KD')
+    parser.add_argument('--trial', type=str, default='1', help='trial id')
+    parser.add_argument('-a', '--alpha', type=float, required=True, help='CE/KD weight')
+    parser.add_argument('-b', '--beta', type=float, default=0.5, help='teacher-vs-ta KD split')
 
-    parser.add_argument('-a', '--alpha', type=float, required=True)
-    parser.add_argument('-b', '--beta', type=float, default=0.5)
-
-    parser.add_argument('--freeze_teacher_until', type=int, default=150)
-    parser.add_argument('--meta_update_teacher', action='store_true')
+    # schedules / meta
+    parser.add_argument('--freeze_teacher_until', type=int, default=150, help='teacher lr=0 until this epoch')
+    parser.add_argument('--meta_update_teacher', action='store_true', help='also meta-update teacher on held set')
 
     opt = parser.parse_args()
 
@@ -75,21 +86,19 @@ def parse_option():
     if opt.path_ta is None:
         opt.path_ta = opt.path_t
 
+    if opt.model_s in ['MobileNetV2', 'ShuffleV1', 'ShuffleV2']:
+        opt.lr = 0.01
+
     if hostname.startswith('visiongpu'):
         opt.model_path = '/path/to/my/student_model'
-        opt.tb_path = '/path/to/my/student_tensorboards'
     else:
         opt.model_path = './save/student_model'
-        opt.tb_path = './save/student_tensorboards'
 
-    opt.lr_decay_epochs = [int(x) for x in opt.lr_decay_epochs.split(',')]
+    opt.lr_decay_epochs = [int(x) for x in opt.lr_decay_epochs.split(',') if x.strip()]
 
     opt.model_name = 'S:{}_T:{}_TA:{}_{}_{}_a:{}_b:{}_{}'.format(
         opt.model_s, opt.model_t, opt.model_ta, opt.dataset, 'mlkd_ta', opt.alpha, opt.beta, opt.trial
     )
-
-    opt.tb_folder = os.path.join(opt.tb_path, opt.model_name)
-    os.makedirs(opt.tb_folder, exist_ok=True)
 
     opt.save_folder = os.path.join(opt.model_path, opt.model_name)
     os.makedirs(opt.save_folder, exist_ok=True)
@@ -112,8 +121,6 @@ def main():
     best_acc = 0.0
     best_epoch = 0
 
-    logger = tb_logger.Logger(logdir=opt.tb_folder, flush_secs=2)
-
     if opt.dataset == 'cifar100':
         train_loader, held_loader, val_loader = get_cifar100_dataloaders(
             batch_size=opt.batch_size,
@@ -134,8 +141,10 @@ def main():
     criterion_cls = nn.CrossEntropyLoss()
     if opt.loss_type == 'mse':
         criterion_kd = MSEWithTemperature(T=opt.kd_T)
-    else:
+    elif opt.loss_type == 'kl':
         criterion_kd = CustomDistillKL(T=opt.kd_T)
+    else:
+        raise NotImplementedError()
 
     criterion_list = nn.ModuleList([criterion_cls, criterion_kd])
 
@@ -148,10 +157,10 @@ def main():
         criterion_list.cuda()
         cudnn.benchmark = True
 
-    t_acc0, _, _ = validate(val_loader, model_t, criterion_cls, opt)
-    ta_acc0, _, _ = validate(val_loader, model_ta, criterion_cls, opt)
-    print('teacher before:', t_acc0)
-    print('ta before     :', ta_acc0)
+    t_acc0, t_top50, t_loss0 = validate(val_loader, model_t, criterion_cls, opt)
+    ta_acc0, ta_top50, ta_loss0 = validate(val_loader, model_ta, criterion_cls, opt)
+    print('teacher before: Acc@1 {:.3f} Acc@5 {:.3f} Loss {:.4f}'.format(t_acc0, t_top50, t_loss0))
+    print('ta before     : Acc@1 {:.3f} Acc@5 {:.3f} Loss {:.4f}'.format(ta_acc0, ta_top50, ta_loss0))
 
     for pg in t_optimizer.param_groups:
         pg['lr'] = 0.0
@@ -171,30 +180,33 @@ def main():
 
         adjust_learning_rate(epoch, opt, s_optimizer)
 
+        print("==> training...")
+        time1 = time.time()
         train_acc, train_loss = train(
             epoch, train_loader, held_loader,
             module_list, criterion_list,
             s_optimizer, t_optimizer, ta_optimizer,
             opt
         )
-
-        logger.log_value('train_acc', train_acc, epoch)
-        logger.log_value('train_loss', train_loss, epoch)
+        time2 = time.time()
+        print('epoch {}, total time {:.2f}'.format(epoch, time2 - time1))
 
         test_acc, test_acc_top5, test_loss = validate(val_loader, model_s, criterion_cls, opt)
-        logger.log_value('test_acc', test_acc, epoch)
-        logger.log_value('test_loss', test_loss, epoch)
-        logger.log_value('test_acc_top5', test_acc_top5, epoch)
 
         if test_acc > best_acc:
             best_acc = float(test_acc)
             best_epoch = epoch
-            torch.save({'epoch': epoch, 'model': model_s.state_dict(), 'best_acc': best_acc},
-                       os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s)))
+            torch.save(
+                {'epoch': epoch, 'model': model_s.state_dict(), 'best_acc': best_acc},
+                os.path.join(opt.save_folder, '{}_best.pth'.format(opt.model_s))
+            )
+            print('saving the best student! epoch={}, acc={:.3f}'.format(epoch, best_acc))
 
         if epoch % opt.save_freq == 0:
-            torch.save({'epoch': epoch, 'model': model_s.state_dict(), 'accuracy': float(test_acc)},
-                       os.path.join(opt.save_folder, 'ckpt_epoch_{}.pth'.format(epoch)))
+            torch.save(
+                {'epoch': epoch, 'model': model_s.state_dict(), 'accuracy': float(test_acc)},
+                os.path.join(opt.save_folder, 'ckpt_epoch_{}.pth'.format(epoch))
+            )
 
     print('best student acc:', best_acc)
     print('best epoch:', best_epoch)
