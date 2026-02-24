@@ -1,117 +1,100 @@
 import os
 import argparse
+from types import SimpleNamespace
+
 import torch
 import torch.nn as nn
-from types import SimpleNamespace
+
 from models import model_dict
 from dataset.meta_cifar100 import get_cifar100_dataloaders
 from helper.meta_loops import validate
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--teacher', default='resnet32x4', help='teacher model name')
-    parser.add_argument('--save-folder', default='./save/student_model/S:resnet8_T:resnet32x4_cifar100_mlkd_a:None_1',
-                        help='folder where teacher checkpoint is saved')
-    parser.add_argument('--checkpoint', default=None, help='full path to a specific checkpoint file (.pth)')
-    parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--num-workers', type=int, default=8)
-    parser.add_argument('--print-freq', type=int, default=100)
+    parser = argparse.ArgumentParser(description="Evaluate an (updated) teacher checkpoint on CIFAR-100 test data.")
+
+    parser.add_argument("--teacher", type=str, default="resnet32x4",
+                        help="Teacher model name (must exist in models/model_dict).")
+
+    parser.add_argument("--save_folder", type=str,
+                        default="./save/student_model/S:resnet8_T:resnet32x4_cifar100_mlkd_a:None_1",
+                        help="Folder where the teacher checkpoint is saved.")
+
+    parser.add_argument("--checkpoint", type=str, default="",
+                        help="Full path to a checkpoint (.pth). If empty, uses: save_folder/<teacher>_teacher_last.pth")
+
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--print_freq", type=int, default=100)
+
     return parser.parse_args()
+
+
+def resolve_checkpoint_path(args) -> str:
+    ckpt = (args.checkpoint or "").strip()
+    if ckpt:
+        return ckpt
+    return os.path.join(args.save_folder, f"{args.teacher}_teacher_last.pth")
+
+
+def load_teacher_checkpoint(model: torch.nn.Module, ckpt_path: str) -> None:
+    map_location = None if torch.cuda.is_available() else torch.device("cpu")
+    ckpt = torch.load(ckpt_path, map_location=map_location)
+
+    # Your train_student_meta.py saves: {'opt': opt, 'model': state_dict}
+    state_dict = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
+
+    # Handle DataParallel checkpoints (module.xxx keys)
+    if isinstance(state_dict, dict) and any(k.startswith("module.") for k in state_dict.keys()):
+        state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
+
+    model.load_state_dict(state_dict, strict=True)
 
 
 def main():
     args = parse_args()
 
-    teacher_model_name = args.teacher
-    save_folder = args.save_folder
-    # allow user to pass a full checkpoint path; otherwise build default path
-    teacher_ckpt = args.checkpoint if args.checkpoint else os.path.join(save_folder, f'{teacher_model_name}_teacher_last.pth')
+    if args.teacher not in model_dict:
+        raise ValueError(
+            f"Unknown teacher model '{args.teacher}'. Available: {sorted(model_dict.keys())}"
+        )
 
-    # helpful fallback: if default path missing, try to find .pth files in save_folder
-    if not os.path.isfile(teacher_ckpt):
-        if args.checkpoint:
-            raise FileNotFoundError(f'Checkpoint not found: {teacher_ckpt}')
-        # If user provided a save_folder but it doesn't exist, try searching likely locations.
-        # 1) If save_folder is a directory, look for .pth inside it.
-        if os.path.isdir(save_folder):
-            candidates = [os.path.join(save_folder, f) for f in os.listdir(save_folder) if f.endswith('.pth')]
-        else:
-            candidates = []
+    ckpt_path = resolve_checkpoint_path(args)
+    if not os.path.isfile(ckpt_path):
+        raise FileNotFoundError(
+            f"Teacher checkpoint not found: {ckpt_path}\n"
+            f"Expected default name: {args.teacher}_teacher_last.pth inside --save_folder\n"
+            f"Or pass --checkpoint with a full path."
+        )
 
-        # 2) If none found and the default save root exists, search subfolders for the teacher name
-        if not candidates:
-            default_root = os.path.join('.', 'save', 'student_model')
-            if os.path.isdir(default_root):
-                for sub in os.listdir(default_root):
-                    subpath = os.path.join(default_root, sub)
-                    if os.path.isdir(subpath) and (f'T:{teacher_model_name}' in sub or teacher_model_name in sub):
-                        for f in os.listdir(subpath):
-                            if f.endswith('.pth'):
-                                candidates.append(os.path.join(subpath, f))
+    # Build teacher
+    model_t = model_dict[args.teacher](num_classes=100)
 
-        # 3) final fallback: walk the repo and find files that match the teacher filename
-        for root, _, files in os.walk('.'):
-            for f in files:
-                if f == f'{teacher_model_name}_teacher_last.pth' or f.endswith(f'_{teacher_model_name}_teacher_last.pth'):
-                    candidates.append(os.path.join(root, f))
+    # Load adapted teacher weights
+    load_teacher_checkpoint(model_t, ckpt_path)
 
-        # If nothing found inside repo, try a few likely roots (e.g. /data1, home)
-        if not candidates:
-            search_roots = ['.', '/data1', os.path.expanduser('~'), '/mnt', '/home']
-            for r in search_roots:
-                if not os.path.isdir(r):
-                    continue
-                for root, _, files in os.walk(r):
-                    for f in files:
-                        if f == f'{teacher_model_name}_teacher_last.pth' or f.endswith(f'_{teacher_model_name}_teacher_last.pth'):
-                            candidates.append(os.path.join(root, f))
-                    if candidates:
-                        break
-                if candidates:
-                    break
-
-        # remove duplicates and prefer exact teacher_last filename when possible
-        candidates = sorted(set(candidates))
-        if len(candidates) == 1:
-            teacher_ckpt = candidates[0]
-            print(f'Using found checkpoint: {teacher_ckpt}')
-        elif len(candidates) > 1:
-            preferred_name = f'{teacher_model_name}_teacher_last.pth'
-            preferred = [c for c in candidates if os.path.basename(c) == preferred_name]
-            if len(preferred) == 1:
-                teacher_ckpt = preferred[0]
-                print(f'Using preferred checkpoint: {teacher_ckpt}')
-            else:
-                raise FileNotFoundError(
-                    f'Checkpoint not found at {os.path.join(save_folder, f"{teacher_model_name}_teacher_last.pth")}.'
-                    f' Multiple .pth files found:\n' + '\n'.join(candidates)
-                    + '\nPass --checkpoint to specify which to use.'
-                )
-        else:
-            raise FileNotFoundError(
-                f"Checkpoint not found: {teacher_ckpt}. Searched save_folder {save_folder} and roots {search_roots}. "
-                "Pass --checkpoint to point to the file directly."
-            )
-
-    map_loc = None if torch.cuda.is_available() else torch.device('cpu')
-    checkpoint = torch.load(teacher_ckpt, map_location=map_loc)
-
-    model_t = model_dict[teacher_model_name](num_classes=100)
-    model_t.load_state_dict(checkpoint['model'])
-    model_t.eval()
+    # Device
     if torch.cuda.is_available():
-        model_t.cuda()
+        model_t = model_t.cuda()
 
-    _, _, val_loader = get_cifar100_dataloaders(batch_size=args.batch_size, num_workers=args.num_workers)
+    model_t.eval()
+
+    # CIFAR-100 loaders (your helper returns train, held, test/val)
+    _, _, test_loader = get_cifar100_dataloaders(
+        batch_size=args.batch_size,
+        num_workers=args.num_workers
+    )
+
     criterion = nn.CrossEntropyLoss()
-
     opt = SimpleNamespace(print_freq=args.print_freq)
-    acc, acc_top5, loss = validate(val_loader, model_t, criterion, opt)
-    print(f'Teacher model accuracy: {acc:.2f}%')
-    print(f'Teacher model top-5 accuracy: {acc_top5:.2f}%')
-    print(f'Teacher model loss: {loss:.4f}')
+
+    acc1, acc5, loss = validate(test_loader, model_t, criterion, opt)
+
+    print(f"Loaded teacher checkpoint: {ckpt_path}")
+    print(f"Teacher Top-1 Acc:  {acc1:.2f}%")
+    print(f"Teacher Top-5 Acc:  {acc5:.2f}%")
+    print(f"Teacher Loss:       {loss:.4f}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
