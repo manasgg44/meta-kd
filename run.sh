@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python train_student_meta.py \
+python train_student_meta_with_teacher_test.py \
   --print_freq 100 \
   --tb_freq 500 \
   --save_freq 40 \
