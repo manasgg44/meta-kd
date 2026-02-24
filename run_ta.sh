@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python train_student_meta_ta.py \
+CUDA_VISIBLE_DEVICES=1 python train_student_meta_ta.py \
   --dataset cifar100 \
   --model_s resnet32 \
   --model_t resnet110 \
